@@ -475,6 +475,32 @@ Rules:
 {focus_section}"""
 
 
+def _dedup_key(tc: Any) -> tuple[str, str]:
+    """Return the duplicate-suppression key for a tool call.
+
+    The key is (tool name, canonical arguments) rather than the tool name
+    alone. Keying on the name alone made the first successful call to a
+    non-repeatable tool block every later call to it, so a single run could
+    only ever fetch one symbol's data -- ``get_stock_profile("AAPL")``
+    silently suppressed ``get_stock_profile("NVDA")``. Including the
+    arguments keeps the original intent (stop a model re-issuing the exact
+    same call in a loop) while letting genuinely different queries through.
+
+    Args:
+        tc: Tool call with ``name`` and ``arguments``.
+
+    Returns:
+        Hashable key pairing the tool name with its canonical arguments.
+    """
+    try:
+        canonical = json.dumps(tc.arguments, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        # Non-serializable args: fall back to repr so the call still gets a
+        # stable key instead of raising inside the agent loop.
+        canonical = repr(tc.arguments)
+    return (tc.name, canonical)
+
+
 def _is_tool_success(result: str) -> bool:
     """Return True if the tool result does not look like an error response."""
     try:
@@ -545,7 +571,7 @@ class AgentLoop:
         self.memory = memory or WorkspaceMemory()
         self._event_callback = event_callback
         self.max_iterations = max_iterations
-        self._called_ok: set[str] = set()
+        self._called_ok: set[tuple[str, str]] = set()
         self._cancel_event = threading.Event()
         self._previous_summary: str = ""
         self._persistent_memory = persistent_memory
@@ -1107,9 +1133,9 @@ class AgentLoop:
 
             tool_def = self.registry.get(tc.name)
             is_repeatable = tool_def.repeatable if tool_def else False
-            if tc.name in self._called_ok and not is_repeatable:
-                logger.warning(f"Blocked duplicate call: {tc.name} (already succeeded)")
-                skip_msg = json.dumps({"skipped": True, "reason": f"{tc.name} already completed successfully. Use the previous result."})
+            if _dedup_key(tc) in self._called_ok and not is_repeatable:
+                logger.warning(f"Blocked duplicate call: {tc.name} (already succeeded with the same arguments)")
+                skip_msg = json.dumps({"skipped": True, "reason": f"{tc.name} already completed successfully with these arguments. Use the previous result."})
                 messages.append(context.format_tool_result(tc.id, tc.name, skip_msg))
                 trace.write({"type": "tool_skipped", "iter": iteration, "tool": tc.name})
                 react_trace.append({"type": "tool_skipped", "tool": tc.name})
@@ -1451,7 +1477,7 @@ class AgentLoop:
 
         success = _is_tool_success(result)
         if success:
-            self._called_ok.add(tc.name)
+            self._called_ok.add(_dedup_key(tc))
 
         status = "ok" if success else "error"
         truncated = result[:TOOL_RESULT_LIMIT]

@@ -95,6 +95,7 @@ include = ["src*", "backtest*", "cli*"]
     "shadow_account/templates/*.j2",
     "shadow_account/templates/*.html",
     "shadow_account/templates/*.css",
+    "valuation/data/*.json",
 ]
 "backtest" = ["*.py"]
 "src.factors" = ["zoo/**/*.yaml", "zoo/**/*.md", "zoo/**/NOTICE"]

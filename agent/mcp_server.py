@@ -1814,12 +1814,13 @@ def iwencai_search(query: str, limit: int = 20) -> str:
 # ---------------------------------------------------------------------------
 # Institutional-research & alternative-data tools (schema mirrored from source)
 #
-# Some read-only tools carry large or multi-mode JSON Schemas (mode enums,
-# per-mode required arguments, paging bounds) that live on the tool class itself.
+# get_institutional_holdings / etf_holdings / prediction_market /
+# research_papers carry large multi-mode JSON Schemas (mode enums, per-mode
+# required arguments, paging bounds) that live on the tool class itself.
 # Re-declaring them here as Python signatures — the pattern used by the
 # single-purpose tools above — would create a SECOND definition that silently
 # drifts from the agent-side one every time a mode or bound changes. So these
-# tools are registered with the tool class' own ``parameters`` and
+# four are registered with the tool class' own ``parameters`` and
 # ``description``: an MCP client sees byte-identical argument documentation to
 # what the agent sees, from one source.
 #
@@ -1850,7 +1851,6 @@ _MIRRORED_TOOL_SOURCES = (
     ("src.tools.etf_holdings_tool", "EtfHoldingsTool"),
     ("src.tools.prediction_market_tool", "PredictionMarketTool"),
     ("src.tools.research_papers_tool", "ResearchPapersTool"),
-    ("src.tools.financial_rigor_tool", "FinancialRigorTool"),
 )
 
 
@@ -1859,8 +1859,8 @@ def _mirrored_tool_classes() -> list[Any]:
 
     Each module is imported lazily AND independently: a missing optional
     dependency or a broken module costs exactly the one tool it defines, and
-    the others still reach the MCP surface. Importing them together in a
-    single ``from ... import`` block would let one bad module drop them all.
+    the other three still reach the MCP surface. Importing them together in a
+    single ``from ... import`` block would make one bad module drop all four.
 
     Returns:
         The ``BaseTool`` subclasses to mirror onto the MCP surface, in

@@ -14,30 +14,6 @@ Systematic corporate valuation framework covering absolute valuation (`DCF / DDM
 
 ### 1. DCF (Discounted Cash Flow)
 
-For a reproducible FCFF valuation, call `financial_rigor` with
-`command="damodaran_fcff"`. This is the exact-decimal port of the core
-`Valuation output` formulas in Aswath Damodaran's official
-[`fcffsimpleginzu.xlsx`](https://pages.stern.nyu.edu/~adamodar/pc/fcffsimpleginzu.xlsx):
-
-- years 1–5 use explicit revenue growth, margin, sales-to-capital and WACC;
-- years 6–10 fade growth, tax rate and WACC to stable assumptions;
-- reinvestment is next year's incremental revenue divided by sales-to-capital;
-- terminal reinvestment is `g / stable ROIC × NOPAT`;
-- enterprise value is bridged to common equity through debt, minority interest,
-  cash, non-operating assets and employee-option value;
-- output includes the ten-year forecast, terminal-value diagnostics and a 3×3
-  terminal WACC/g sensitivity matrix.
-
-Fetch and normalize source data first with `get_financial_statements`,
-`get_stock_profile`, SEC filings and market data. The model intentionally does
-not guess growth, WACC, target margin, sales-to-capital or terminal ROIC. Year-1
-margin may be supplied explicitly; otherwise it is derived from adjusted
-EBIT/revenue, and the output records which path won. R&D, lease and
-employee-option adjustments must be supplied as adjusted EBIT, debt and option
-value. Company totals and share count use corresponding scales (for example,
-millions and millions), while `current_price` remains raw currency per share.
-This core port is not the workbook's Excel data-entry UI.
-
 **Core formulas**:
 
 ```

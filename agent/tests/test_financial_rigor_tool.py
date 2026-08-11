@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+from decimal import getcontext
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from src.tools.financial_rigor_tool import (
     _safe_arith,
     benford_check,
     cross_validate,
+    damodaran_fcff_valuation,
     exact_calc,
     three_scenario_valuation,
     verify_market_cap,
@@ -204,6 +206,134 @@ def test_three_scenario_normalizes_percent_growth() -> None:
     assert "bear" not in out.get("growth_normalized_from_percent", [])
 
 
+# ── Damodaran FCFF ───────────────────────────────────────────────────────
+
+
+def _damodaran_sample() -> dict[str, Any]:
+    """Inputs and cached output from Damodaran's official 2026 workbook."""
+    return {
+        "revenue": 21765.4,
+        "ebit": 3060.9,
+        "book_equity": 10667.8,
+        "debt": 45063,
+        "cash": 19000,
+        "nonoperating_assets": 21119,
+        "minority_interest": 1558,
+        "shares": 4315,
+        "current_price": 72.28,
+        "effective_tax_rate": 0.175,
+        "marginal_tax_rate": 0.25,
+        "revenue_growth_next": 0.05,
+        "revenue_growth_years_2_5": 0.05,
+        "operating_margin_next": 0.14063146094259696,
+        "target_operating_margin": 0.14063146094259696,
+        "margin_convergence_year": 5,
+        "sales_to_capital_years_1_5": 1.708537671031893,
+        "sales_to_capital_years_6_10": 1.708537671031893,
+        "initial_wacc": 0.0705501574064654,
+        "terminal_wacc": 0.0881,
+        "terminal_growth": 0.0458,
+        "terminal_roic": 0.0881,
+    }
+
+
+def test_damodaran_fcff_matches_official_workbook_cached_output() -> None:
+    out = damodaran_fcff_valuation(_damodaran_sample())
+    assert out["method"] == "Damodaran simple FCFF"
+    assert out["base_year"]["year_1_margin_source"] == "explicit_operating_margin_next"
+    assert out["enterprise_value"] == pytest.approx(37517.53076531802)
+    assert out["equity_value"] == pytest.approx(31015.53076531802)
+    assert out["value_per_share"] == pytest.approx(7.187840270062114)
+    assert out["price_to_value"] == pytest.approx(10.055871761793531)
+    assert len(out["forecast"]) == 10
+    assert out["forecast"][0]["fcff"] == pytest.approx(1982.696720220315)
+    assert out["forecast"][-1]["fcff"] == pytest.approx(2755.7086026919724)
+    assert len(out["sensitivity"]["values_per_share"]) == 3
+
+
+def test_damodaran_fcff_rejects_impossible_terminal_spread() -> None:
+    inputs = _damodaran_sample()
+    inputs["terminal_growth"] = inputs["terminal_wacc"]
+    with pytest.raises(ValueError, match="terminal_wacc must exceed terminal_growth"):
+        damodaran_fcff_valuation(inputs)
+
+
+def test_damodaran_fcff_derives_next_margin_from_adjusted_ebit() -> None:
+    inputs = _damodaran_sample()
+    inputs.pop("operating_margin_next")
+    out = damodaran_fcff_valuation(inputs)
+    assert out["forecast"][0]["operating_margin"] == pytest.approx(
+        inputs["ebit"] / inputs["revenue"]
+    )
+    assert out["base_year"]["year_1_margin_source"] == "adjusted_ebit_div_revenue"
+    inputs["ebit"] *= 2
+    assert damodaran_fcff_valuation(inputs)["value_per_share"] != out["value_per_share"]
+
+
+def test_damodaran_fcff_is_independent_of_global_decimal_precision() -> None:
+    original = getcontext().prec
+    try:
+        getcontext().prec = 6
+        low_precision = damodaran_fcff_valuation(_damodaran_sample())
+    finally:
+        getcontext().prec = original
+    assert low_precision["value_per_share"] == pytest.approx(7.187840270062114)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_damodaran_fcff_rejects_nonfinite_inputs(value: float) -> None:
+    inputs = _damodaran_sample()
+    inputs["cash"] = value
+    with pytest.raises(ValueError, match="must be finite"):
+        damodaran_fcff_valuation(inputs)
+
+
+def test_damodaran_fcff_rejects_unknown_input_keys() -> None:
+    inputs = _damodaran_sample()
+    inputs["option_vaule"] = 100
+    with pytest.raises(ValueError, match="unsupported Damodaran FCFF inputs.*option_vaule"):
+        damodaran_fcff_valuation(inputs)
+
+
+def test_damodaran_fcff_runtime_guards_nol_and_growth_boundaries() -> None:
+    inputs = _damodaran_sample()
+    inputs["nol"] = -1
+    with pytest.raises(ValueError, match="nol must be non-negative"):
+        damodaran_fcff_valuation(inputs)
+
+    inputs = _damodaran_sample()
+    inputs["revenue_growth_next"] = -1
+    damodaran_fcff_valuation(inputs)  # exactly -100% is a valid wind-down boundary
+    inputs["revenue_growth_next"] = -1.0001
+    with pytest.raises(ValueError, match="growth rates cannot be below -1"):
+        damodaran_fcff_valuation(inputs)
+
+
+def test_damodaran_fcff_zero_growth_zero_roic_keeps_base_case_valid() -> None:
+    inputs = _damodaran_sample()
+    inputs["terminal_growth"] = 0
+    inputs["terminal_roic"] = 0
+    out = damodaran_fcff_valuation(inputs)
+    assert math.isfinite(out["value_per_share"])
+    assert any(value is None for row in out["sensitivity"]["values_per_share"] for value in row)
+
+
+def test_damodaran_fcff_unit_scale_keeps_raw_per_share_price() -> None:
+    inputs = _damodaran_sample()
+    base = damodaran_fcff_valuation(inputs)
+    scaled = {
+        key: value * 1_000_000
+        if key in {"revenue", "ebit", "book_equity", "debt", "cash",
+                   "nonoperating_assets", "minority_interest", "shares"}
+        else value
+        for key, value in inputs.items()
+    }
+    out = damodaran_fcff_valuation(scaled)
+    assert out["value_per_share"] == pytest.approx(base["value_per_share"])
+    assert out["price_to_value"] == pytest.approx(base["price_to_value"])
+    assert "unscaled currency per share" in out["unit_note"]
+
+
 # ── tool contract ─────────────────────────────────────────────────────────
 
 
@@ -215,7 +345,11 @@ def test_tool_metadata() -> None:
     assert tool.parameters["required"] == ["command"]
     cmds = set(tool.parameters["properties"]["command"]["enum"])
     assert cmds == {"verify_market_cap", "verify_valuation", "cross_validate",
-                    "benford", "calc", "three_scenario"}
+                    "benford", "calc", "three_scenario", "damodaran_fcff"}
+    fcff = tool.parameters["properties"]["fcff_inputs"]["properties"]
+    assert all(fcff[key]["minimum"] == -1 for key in (
+        "revenue_growth_next", "revenue_growth_years_2_5", "terminal_growth",
+    ))
 
 
 def test_tool_is_auto_discovered() -> None:
@@ -265,3 +399,17 @@ def test_execute_three_scenario_validates_growth_shape() -> None:
         growth=[0.1, 0.2], pe=[25, 20, 15],  # growth has only 2 entries
     )
     assert env["status"] == "error"
+
+
+def test_execute_damodaran_fcff_happy() -> None:
+    env = _run(command="damodaran_fcff", fcff_inputs=_damodaran_sample())
+    assert env["status"] == "ok"
+    assert env["value_per_share"] == pytest.approx(7.187840270062114)
+
+
+def test_execute_damodaran_fcff_rejects_negative_nol() -> None:
+    inputs = _damodaran_sample()
+    inputs["nol"] = -1
+    env = _run(command="damodaran_fcff", fcff_inputs=inputs)
+    assert env["status"] == "error"
+    assert "nol must be non-negative" in env["error"]

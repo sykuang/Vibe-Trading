@@ -1,9 +1,9 @@
 """MCP exposure of the institutional-research & alternative-data tools.
 
-Covers the four tools that reach the MCP surface by mirroring their own JSON
+Covers the tools that reach the MCP surface by mirroring their own JSON
 Schema (``get_institutional_holdings`` / ``etf_holdings`` /
-``prediction_market`` / ``research_papers``) and the red-line regression that
-guards *which* tools the MCP server is allowed to surface at all.
+``prediction_market`` / ``research_papers`` / ``financial_rigor``) and the
+red-line regression that guards *which* tools the MCP server may surface.
 
 No network: the only test that actually invokes a tool swaps the mcp_server
 registry for a recording fake, so nothing reaches SEC / Polymarket / arXiv.
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ MIRRORED_TOOL_NAMES = (
     "etf_holdings",
     "prediction_market",
     "research_papers",
+    "financial_rigor",
 )
 
 # Tools that mutate state (is_readonly is not True on the agent side) and were
@@ -82,8 +84,8 @@ def _tool_classes() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def test_institutional_research_tools_are_exposed_via_mcp() -> None:
-    """All four institutional-research tools must reach the MCP surface."""
+def test_mirrored_readonly_tools_are_exposed_via_mcp() -> None:
+    """All mirrored read-only tools must reach the MCP surface."""
     registered = set(_mcp_tools())
 
     missing = set(MIRRORED_TOOL_NAMES) - registered
@@ -94,11 +96,11 @@ def test_institutional_research_tools_are_exposed_via_mcp() -> None:
 
 
 def test_mcp_tool_count_covers_the_mirrored_tools() -> None:
-    """The MCP surface must not shrink below the documented 59 tools."""
+    """The MCP surface must not shrink below the documented 60 tools."""
     tools = _mcp_tools()
 
-    assert len(tools) >= 59, (
-        f"Expected at least 59 MCP tools (55 pre-existing + 4 mirrored), found {len(tools)}."
+    assert len(tools) >= 60, (
+        f"Expected at least 60 MCP tools (55 pre-existing + 5 mirrored), found {len(tools)}."
     )
 
 
@@ -305,13 +307,88 @@ def test_mirrored_tool_round_trips_over_a_real_mcp_session(monkeypatch) -> None:
     assert result.structured_content == {"result": '{"status": "ok"}'}
 
 
-def test_one_broken_tool_module_costs_only_its_own_tool(monkeypatch, caplog) -> None:
-    """A broken tool module must not take the other three down with it.
+def test_financial_rigor_damodaran_fcff_runs_over_mcp() -> None:
+    """The valuation engine must be callable through the public MCP contract."""
+    tool = _mcp_tools()["financial_rigor"]
+    result = asyncio.run(tool.run({
+        "command": "damodaran_fcff",
+        "fcff_inputs": {
+            "revenue": 1000, "ebit": 100, "book_equity": 500,
+            "debt": 200, "cash": 100, "nonoperating_assets": 0,
+            "minority_interest": 0, "shares": 100,
+            "effective_tax_rate": 0.2, "marginal_tax_rate": 0.25,
+            "revenue_growth_next": 0.1, "revenue_growth_years_2_5": 0.08,
+            "operating_margin_next": 0.11, "target_operating_margin": 0.15,
+            "margin_convergence_year": 5,
+            "sales_to_capital_years_1_5": 2,
+            "sales_to_capital_years_6_10": 1.5,
+            "initial_wacc": 0.1, "terminal_wacc": 0.085,
+            "terminal_growth": 0.03, "terminal_roic": 0.085,
+        },
+    }))
 
-    Regression: importing all four classes in one ``from ... import`` block
+    envelope = json.loads(result.content[0].text)
+    assert envelope["status"] == "ok"
+    assert envelope["command"] == "damodaran_fcff"
+    assert len(envelope["forecast"]) == 10
+    assert envelope["source"].endswith("fcffsimpleginzu.xlsx")
+
+
+def test_financial_rigor_damodaran_fcff_rejects_nonfinite_over_mcp() -> None:
+    """The public MCP path must never emit NaN/Infinity in a success envelope."""
+    tool = _mcp_tools()["financial_rigor"]
+    result = asyncio.run(tool.run({
+        "command": "damodaran_fcff",
+        "fcff_inputs": {
+            "revenue": 1000, "ebit": 100, "book_equity": 500,
+            "debt": 200, "cash": float("nan"), "nonoperating_assets": 0,
+            "minority_interest": 0, "shares": 100,
+            "effective_tax_rate": 0.2, "marginal_tax_rate": 0.25,
+            "revenue_growth_next": 0.1, "revenue_growth_years_2_5": 0.08,
+            "target_operating_margin": 0.15, "margin_convergence_year": 5,
+            "sales_to_capital_years_1_5": 2,
+            "sales_to_capital_years_6_10": 1.5,
+            "initial_wacc": 0.1, "terminal_wacc": 0.085,
+            "terminal_growth": 0.03, "terminal_roic": 0.085,
+        },
+    }))
+    envelope = json.loads(result.content[0].text, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))
+    assert envelope["status"] == "error"
+    assert "must be finite" in envelope["error"]
+
+
+def test_financial_rigor_damodaran_fcff_rejects_unknown_nested_key_over_mcp() -> None:
+    """Nested typos must fail closed despite FastMCP's permissive kwargs adapter."""
+    tool = _mcp_tools()["financial_rigor"]
+    result = asyncio.run(tool.run({
+        "command": "damodaran_fcff",
+        "fcff_inputs": {
+            "revenue": 1000, "ebit": 100, "book_equity": 500,
+            "debt": 200, "cash": 100, "nonoperating_assets": 0,
+            "minority_interest": 0, "shares": 100,
+            "effective_tax_rate": 0.2, "marginal_tax_rate": 0.25,
+            "revenue_growth_next": 0.1, "revenue_growth_years_2_5": 0.08,
+            "target_operating_margin": 0.15, "margin_convergence_year": 5,
+            "sales_to_capital_years_1_5": 2,
+            "sales_to_capital_years_6_10": 1.5,
+            "initial_wacc": 0.1, "terminal_wacc": 0.085,
+            "terminal_growth": 0.03, "terminal_roic": 0.085,
+            "option_vaule": 100,
+        },
+    }))
+    envelope = json.loads(result.content[0].text)
+    assert envelope["status"] == "error"
+    assert "unsupported Damodaran FCFF inputs" in envelope["error"]
+    assert "option_vaule" in envelope["error"]
+
+
+def test_one_broken_tool_module_costs_only_its_own_tool(monkeypatch, caplog) -> None:
+    """A broken tool module must not take the other mirrored tools down with it.
+
+    Regression: importing all mirrored classes in one ``from ... import`` block
     made a single SyntaxError / missing optional dependency raise out of
-    ``_mirrored_tool_classes()``, so the MCP surface silently lost all four
-    institutional-research tools instead of one.
+    ``_mirrored_tool_classes()``, so the MCP surface silently lost every
+    mirrored tool instead of one.
     """
     mod = _import_mcp_server()
 
@@ -329,6 +406,7 @@ def test_one_broken_tool_module_costs_only_its_own_tool(monkeypatch, caplog) -> 
         "get_institutional_holdings",
         "etf_holdings",
         "prediction_market",
+        "financial_rigor",
     }, f"one broken module took down more than its own tool: survivors={sorted(surviving)}"
     assert any("research_papers_tool" in record.message for record in caplog.records)
 

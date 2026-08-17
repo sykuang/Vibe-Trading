@@ -1370,7 +1370,7 @@ Vibe-Trading은 Interactive Brokers의 공식 원격 MCP endpoint에 읽기 전�
   "mcpServers": {
     "ibkr": {
       "type": "streamableHttp",
-      "url": "https://api.ibkr.com/v1/api/mcp",
+      "url": "https://api.ibkr.com/v1/api/mcp-public",
       "auth": {
         "type": "oauth",
         "scopes": ["mcp.read"],

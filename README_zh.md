@@ -1357,7 +1357,7 @@ Vibe-Trading 可以以只读模式直连 Interactive Brokers 的官方远程 MCP
   "mcpServers": {
     "ibkr": {
       "type": "streamableHttp",
-      "url": "https://api.ibkr.com/v1/api/mcp",
+      "url": "https://api.ibkr.com/v1/api/mcp-public",
       "auth": {
         "type": "oauth",
         "scopes": ["mcp.read"],

@@ -1443,7 +1443,7 @@ Interactive Brokers en modo de solo lectura. Añade esto a `~/.vibe-trading/agen
   "mcpServers": {
     "ibkr": {
       "type": "streamableHttp",
-      "url": "https://api.ibkr.com/v1/api/mcp",
+      "url": "https://api.ibkr.com/v1/api/mcp-public",
       "auth": {
         "type": "oauth",
         "scopes": ["mcp.read"],

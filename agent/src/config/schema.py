@@ -226,7 +226,7 @@ ROBINHOOD_MCP_SERVER_SEED: dict[str, object] = {
 # config must pin an explicit tool allowlist plus pass the live order gate.
 IBKR_MCP_SERVER_SEED: dict[str, object] = {
     "type": "streamableHttp",
-    "url": "https://api.ibkr.com/v1/api/mcp",
+    "url": "https://api.ibkr.com/v1/api/mcp-public",
     "auth": {
         "type": "oauth",
         "scopes": ["mcp.read"],

@@ -40,6 +40,7 @@ from src.swarm.worker import (
     _report_written,
     run_worker,
 )
+from src.tools.write_file_tool import WriteFileTool
 import src.swarm.runtime as rt
 import src.swarm.worker as worker_mod
 
@@ -139,7 +140,7 @@ def test_json_with_late_ok_key_is_a_known_heuristic_limitation():
     txt = '{"' + padding + '": 1, "ok": true, "data": {}}'
     assert (
         _classify_deliverable(
-            txt, is_data_agent=True, report_written=False, data_tool_calls=1
+            txt, is_data_agent=True, report_written=True, data_tool_calls=1
         )
         is None
     )
@@ -337,6 +338,17 @@ class _ScriptedLLM:
                 finish_reason="tool_calls",
             ),
             LLMResponse(
+                content=None,
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call-2",
+                        name="write_file",
+                        arguments={"path": "report.md", "content": REAL_REPORT},
+                    )
+                ],
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(
                 content="Completed the requested market analysis with a clear conclusion.",
                 tool_calls=[],
                 finish_reason="stop",
@@ -371,6 +383,8 @@ def test_tool_result_event_status_and_evidence_credit_agree(
 ) -> None:
     registry = ToolRegistry()
     registry.register(_ResultTool(result, raises=raises))
+    registry.register(WriteFileTool())
+    monkeypatch.setenv("VIBE_TRADING_ALLOWED_RUN_ROOTS", str(tmp_path))
     monkeypatch.setattr(
         worker_mod, "build_swarm_registry", lambda *args, **kwargs: registry
     )
@@ -382,7 +396,7 @@ def test_tool_result_event_status_and_evidence_credit_agree(
             id="analyst",
             role="Analyst",
             system_prompt="Analyse the result.",
-            tools=["market_probe"],
+            tools=["market_probe", "write_file"],
             max_iterations=3,
         ),
         task=SwarmTask(

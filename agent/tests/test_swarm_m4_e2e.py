@@ -307,6 +307,39 @@ def test_run_worker_uses_remote_mcp_tool_and_report_cites_canned_data(
     ]
 
 
+def test_data_worker_cannot_complete_with_only_report_write(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("VIBE_TRADING_ALLOWED_RUN_ROOTS", str(tmp_path))
+    llm_factory = _stub_llm_factory([
+        _tool_call_response(
+            call_id="tc-1",
+            tool="write_file",
+            arguments={"path": "report.md", "content": "# No analysis\n"},
+        ),
+        _final_response("Wrote a report without running factor analysis."),
+    ])
+
+    with patch("src.swarm.worker.ChatLLM", llm_factory):
+        result = run_worker(
+            agent_spec=_agent_spec(
+                agent_id="factor_only_writer",
+                tools=["factor_analysis", "write_file"],
+            ),
+            task=_task(task_id="t_write_only", agent_id="factor_only_writer"),
+            upstream_summaries={},
+            user_vars={},
+            run_dir=tmp_path,
+        )
+
+    assert result.status == "incomplete"
+    assert result.error == (
+        "output contract not met: "
+        "data agent produced no successful data/analysis tool calls"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # T-13 — isolation: two agents each whitelist their own server's tool, and
 #                   the LLM-visible tool list per agent never leaks the other.

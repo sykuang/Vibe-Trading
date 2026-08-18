@@ -130,6 +130,7 @@ def test_runtime_redacts_non_public_llm_model_metadata_before_persistence(
         encoding="utf-8",
     )
     monkeypatch.setenv("LANGCHAIN_PROVIDER", "openai")
+    monkeypatch.delenv("LANGCHAIN_MODEL_NAME", raising=False)
     monkeypatch.setattr(llm_mod, "_ENV_CANDIDATES", [env_file])
     monkeypatch.setattr(llm_mod, "_dotenv_loaded", False)
     reset_env_config()
@@ -153,6 +154,7 @@ def test_runtime_bounds_llm_metadata_before_persistence(
         encoding="utf-8",
     )
     monkeypatch.setenv("LANGCHAIN_PROVIDER", "openai")
+    monkeypatch.delenv("LANGCHAIN_MODEL_NAME", raising=False)
     monkeypatch.setattr(llm_mod, "_ENV_CANDIDATES", [env_file])
     monkeypatch.setattr(llm_mod, "_dotenv_loaded", False)
     reset_env_config()

@@ -11,7 +11,8 @@ import pandas as pd
 import pytest
 
 from src.factors.factor_analysis_core import compute_group_equity
-from src.tools.factor_analysis_tool import run_factor_analysis
+from src.tools.factor_analysis_tool import FactorAnalysisTool, run_factor_analysis
+from src.tools import path_utils
 
 
 def _panel(n_dates: int = 30, n_codes: int = 10, seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -78,3 +79,26 @@ def test_run_factor_analysis_single_day_ic_std_is_finite_json() -> None:
         assert summary["ic_std"] == 0.0
         json.dumps(out, allow_nan=False)
         json.dumps(summary, allow_nan=False)
+
+
+def test_factor_tool_resolves_relative_paths_inside_run_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    factor, ret = _panel(n_dates=12, n_codes=8, seed=4)
+    factor.to_csv(tmp_path / "factor.csv")
+    ret.to_csv(tmp_path / "returns.csv")
+    monkeypatch.setattr(path_utils, "_allowed_run_roots", lambda: [tmp_path])
+
+    result = json.loads(
+        FactorAnalysisTool().execute(
+            factor_csv="factor.csv",
+            return_csv="returns.csv",
+            output_dir="analysis",
+            n_groups=4,
+            run_dir=str(tmp_path),
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["output_dir"] == str(tmp_path / "analysis")
+    assert (tmp_path / "analysis" / "ic_summary.json").is_file()

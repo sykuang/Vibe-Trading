@@ -10,6 +10,7 @@ import pandas as pd
 
 from src.agent.tools import BaseTool
 from src.factors.factor_analysis_core import compute_ic_series, compute_group_equity
+from src.tools.path_utils import safe_path, safe_run_dir
 
 # Backward-compatible aliases for any external imports of the private names.
 _compute_ic_series = compute_ic_series
@@ -143,9 +144,22 @@ class FactorAnalysisTool(BaseTool):
         Returns:
             JSON-formatted analysis summary.
         """
+        factor_csv = kwargs["factor_csv"]
+        return_csv = kwargs["return_csv"]
+        output_dir = kwargs["output_dir"]
+        run_dir = kwargs.get("run_dir")
+        if run_dir:
+            try:
+                workspace = safe_run_dir(str(run_dir))
+                factor_csv = str(safe_path(factor_csv, workspace))
+                return_csv = str(safe_path(return_csv, workspace))
+                output_dir = str(safe_path(output_dir, workspace))
+            except ValueError as exc:
+                return json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False)
+
         return run_factor_analysis(
-            factor_csv=kwargs["factor_csv"],
-            return_csv=kwargs["return_csv"],
-            output_dir=kwargs["output_dir"],
+            factor_csv=factor_csv,
+            return_csv=return_csv,
+            output_dir=output_dir,
             n_groups=kwargs.get("n_groups", 5),
         )

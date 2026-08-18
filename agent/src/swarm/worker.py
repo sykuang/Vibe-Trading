@@ -771,7 +771,7 @@ def run_worker(
             ):
                 result = registry.execute(tc.name, args)
             result_is_error = _is_error_result(result)
-            if tc.name != "load_skill" and not result_is_error:
+            if tc.name not in _NON_ANALYSIS_TOOLS and not result_is_error:
                 data_tool_calls += 1
             tc_elapsed = time.monotonic() - tc_start
             _emit(
@@ -905,6 +905,7 @@ def _truncate_preview(value: Any, *, limit: int = 200) -> str:
 # text deliverable with no tool calls — it must NOT be failed for "no tool
 # evidence" (that would regress correct runs; see #115 framing).
 _GENERIC_TOOLS = {"bash", "read_file", "write_file", "load_skill", "edit_file"}
+_NON_ANALYSIS_TOOLS = _GENERIC_TOOLS - {"bash"}
 
 _UNPARSED_TOOL_MARKERS = (
     "<\uff5ctool\u2581calls\u2581begin\uff5c>",
@@ -1005,8 +1006,10 @@ def _classify_deliverable(
             "phase 2" in low and len(tail) < 80
         ):
             return "plan-only stub (no executed analysis / conclusion)"
-    if is_data_agent and not report_written and data_tool_calls == 0:
-        return "data agent produced no tool calls and no report.md"
+    if is_data_agent and not report_written:
+        return "data agent produced no report.md"
+    if is_data_agent and data_tool_calls == 0:
+        return "data agent produced no successful data/analysis tool calls"
     return None
 
 

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.swarm.worker import _preview_tool_arguments, _resolve_summary, _best_summary
+from src.swarm.worker import (
+    _best_summary,
+    _classify_deliverable,
+    _preview_tool_arguments,
+    _resolve_summary,
+)
 
 
 def test_resolve_summary_reads_report_md(tmp_path: Path) -> None:
@@ -76,3 +81,14 @@ def test_preview_tool_arguments_truncates_non_sensitive_values() -> None:
     """Non-sensitive event previews stay short."""
     preview = _preview_tool_arguments({"query": "A" * 250})
     assert preview["query"] == "A" * 200 + "..."
+
+
+def test_data_agent_without_report_is_incomplete_after_successful_tool_calls() -> None:
+    reason = _classify_deliverable(
+        "Analysis calls ran, but the mandatory report was not written.",
+        is_data_agent=True,
+        report_written=False,
+        data_tool_calls=8,
+    )
+
+    assert reason == "data agent produced no report.md"

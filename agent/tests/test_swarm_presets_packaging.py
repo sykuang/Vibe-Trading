@@ -69,6 +69,13 @@ def test_known_presets_load(preset_name: str) -> None:
     assert data["agents"], f"{preset_name} has no agents"
 
 
+def test_quant_strategy_factor_miner_can_fetch_its_factor_universe() -> None:
+    data = load_preset("quant_strategy_desk")
+    factor_miner = next(a for a in data["agents"] if a["id"] == "factor_miner")
+
+    assert "get_market_data" in factor_miner["tools"]
+
+
 def test_quant_strategy_desk_ends_with_report_aggregator() -> None:
     """quant_strategy_desk must deliver a final report, not stop at the risk audit.
 

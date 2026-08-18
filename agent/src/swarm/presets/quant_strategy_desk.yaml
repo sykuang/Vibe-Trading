@@ -44,8 +44,9 @@ agents:
       4. **Factor combination** — Suggest equal-weight or optimized combo of 3–5 factors
       5. **Risk notes** — Factor-decay scenarios and cyclicality
 
+      Use get_market_data to fetch the candidate universe and explicit benchmark series.
       Use factor_analysis for computations.
-    tools: [bash, read_file, write_file, load_skill, factor_analysis]
+    tools: [bash, read_file, write_file, load_skill, get_market_data, factor_analysis]
     skills: [multi-factor, factor-research]
     max_iterations: 50
     timeout_seconds: 1800
